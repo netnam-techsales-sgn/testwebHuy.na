@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starbucks Việt Nam - Định Vị Bán Kính 25km</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        :root {
+            --sb-green: #00704A;
+            --sb-dark: #1E3932;
+            --sb-light: #F2F0EB;
+            --text-main: #212529;
+            --border-color: #E5E7EB;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background-color: var(--sb-light);
+        }
+
+        /* --- SIDEBAR PANEL --- */
+        .sidebar {
+            width: 420px;
+            background: #ffffff;
+            box-shadow: 4px 0 20px rgba(0,0,0,0.08);
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background-color: var(--sb-dark);
+            color: #ffffff;
+        }
+
+        .sidebar-header h1 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+        
+        .counter {
+            font-size: 13px;
+            color: #A3E635;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .radius-info {
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-clear {
+            background: #EF4444;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 600;
+            display: none;
+        }
+
+        .btn-clear:hover { background: #DC2626; }
+
+        .search-box {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 6px;
+            background: rgba(255,255,255,0.1);
+            color: #ffffff;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .search-box:focus {
+            background: #ffffff;
+            color: var(--text-main);
+            border-color: var(--sb-green);
+        }
+
+        .store-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            background: #FAFAFA;
+        }
+
+        .store-item {
+            padding: 16px;
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            background: #ffffff;
+            transition: all 0.2s ease;
+        }
+
+        .store-item:hover {
+            border-color: var(--sb-green);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        .store-title-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .store-item h3 {
+            color: var(--sb-dark);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .distance-badge {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            background: #FEF3C7;
+            color: #D97706;
+            flex-shrink: 0;
+        }
+
+        .store-item p {
+            font-size: 12.5px;
+            color: #4B5563;
+            line-height: 1.5;
+        }
+
+        /* --- MAP PANEL --- */
+        #map {
+            flex: 1;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .popup-container h2 {
+            font-size: 14px;
+            color: var(--sb-dark);
+            margin-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 4px;
+        }
+
+        .popup-container p { font-size: 12px; color: #374151; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>STARBUCKS VIETNAM</h1>
+            <div id="store-count" class="counter">Đang tải danh sách...</div>
+            
+            <div class="radius-info">
+                <span id="radius-status">💡 Click điểm bất kỳ trên bản đồ để quét 25km</span>
+                <button id="clear-filter" class="btn-clear" onclick="resetRadiusFilter()">Hủy lọc</button>
+            </div>
+
+            <input type="text" id="search-input" class="search-box" placeholder="Tìm theo tên hoặc đường phố..." oninput="filterStores()">
+        </div>
+        <div id="store-list" class="store-list"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+        // =========================================================================
+        // DATA ENGINE: TOÀN BỘ CỬA HÀNG TRÊN HỆ THỐNG
+        // =========================================================================
+        const starbucksStores = [
+            // --- KHU VỰC THÀNH PHỐ HỒ CHÍ MINH ---
+            {"name": "Starbucks New World", "model": "Core", "address": "Tầng trệt và Tầng 1 khách sạn New World Sài Gòn, 76 Lê Lai, Phường Bến Thành, Quận 1, TP. HCM", "lat": 10.771924, "lng": 106.693734},
+            {"name": "Starbucks Phan Xích Long", "model": "Core", "address": "125 - 127 Phan Xích Long, Phường Cầu Kiệu, Quận Phú Nhuận, TP. HCM", "lat": 10.7951, "lng": 106.6853},
+            {"name": "Starbucks Panorama", "model": "Core", "address": "209 Trần Văn Trà, Phường Tân Hưng, Quận 7, TP. HCM", "lat": 10.7259, "lng": 106.7082},
+            {"name": "Starbucks Vivo City", "model": "SE", "address": "Số 01-28a, Tầng 1 Tòa nhà SC Vivocity, số 1058 Đường Nguyễn Văn Linh, Phường Tân Hưng, Quận 7, TP. HCM", "lat": 10.7294, "lng": 106.6797},
+            {"name": "Starbucks Thảo Điền", "model": "Core", "address": "21 Đường Thảo Điền, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.8043, "lng": 106.7371},
+            {"name": "Starbucks Kumho", "model": "SE", "address": "Phòng 1A Tòa nhà mPlaza, 39 Lê Duẩn, Phường Bến Nghé, Quận 1, TP. HCM", "lat": 10.7821, "lng": 106.7005},
+            {"name": "Starbucks Nguyễn Huệ", "model": "SE", "address": "Tòa nhà Saigoi Garden, Số 99 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. HCM", "lat": 10.7735, "lng": 106.7042},
+            {"name": "Starbucks Emart", "model": "SE", "address": "Lô F1-01, F2-01 tại tầng 1 và tầng 2, số 366 Phan Văn Trị, Phường An Nhơn, Quận Gò Vấp, TP. HCM", "lat": 10.8275, "lng": 106.6888},
+            {"name": "Starbucks Lakai", "model": "SE", "address": "Một phần tầng 1 thuộc khu thương mại của Tòa nhà Lakai, 98-126 Nguyễn Tri Phương, Phường An Đông, Quận 5, TP. HCM", "lat": 10.7578, "lng": 106.6669},
+            {"name": "Starbucks Tan Son Nhat Domestic Parking", "model": "SE", "address": "Phòng A2, Tầng trệt, Khu vực Thương mại Nhà giữ xe, Ga Quốc nội, Sân bay Tân Sơn Nhất, Số 45 Đường Trường Sơn, Phường Tân Sơn Hòa, Quận Tân Bình, TP. HCM", "lat": 10.8130, "lng": 106.6625},
+            {"name": "Starbucks Nguyễn Văn Trỗi", "model": "SE", "address": "Số 66 Đường Nguyễn Văn Trỗi, Phường Phú Nhuận, TP. HCM", "lat": 10.7932, "lng": 106.6806},
+            {"name": "Starbucks The Vista", "model": "SE", "address": "P1.07, tầng trệt Trung tâm thương mại The Oxygen, 628C đường Võ Nguyên Giáp, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.8028, "lng": 106.7533},
+            {"name": "Starbucks The Leman", "model": "Modular", "address": "Tầng trệt, Tòa nhà Léman Luxury Apartments, số 117 Nguyễn Đình Chiểu, Phường Xuân Hòa, Quận 3, TP. HCM", "lat": 10.7788, "lng": 106.6908},
+            {"name": "Starbucks Ibis", "model": "Modular", "address": "Tầng trệt, Khách sạn Ibis Hà Đô, số 2 Hồng Hà, Phường Tân Sơn Hòa, Quận Tân Bình, TP. HCM", "lat": 10.8118, "lng": 106.6665},
+            {"name": "Starbucks Cách Mạng Tháng 8", "model": "SE", "address": "241bis Cách Mạng Tháng Tám, Phường Bàn Cờ, Quận 3, TP. HCM", "lat": 10.7766, "lng": 106.6811},
+            {"name": "Starbucks Vạn Hạnh Mall", "model": "SE", "address": "Phòng 1-09A, Tầng 01, Tòa nhà Trung tâm thương mại Vạn Hạnh, Số 11 Đường Sư Vạn Hạnh, Phường Hòa Hưng, Quận 10, TP. HCM", "lat": 10.7712, "lng": 106.6685},
+            {"name": "Starbucks Crescent Strip", "model": "Core", "address": "Phòng CR1-02, Tầng 1, Lô CR3-1-A, Số 103 Tôn Dật Tiên, Phường Tân Mỹ, Quận 7, TP. HCM", "lat": 10.7196, "lng": 106.7188},
+            {"name": "Starbucks Estella", "model": "Core", "address": "Lô L1-08, 09, Tầng 1, Trung tâm thương mại Estella Place, Số 88 đường Song Hành, Phường Bình Trưng, TP. Thủ Đức, TP. HCM", "lat": 10.8023, "lng": 106.7441},
+            {"name": "Starbucks River Park", "model": "SE", "address": "Tầng trệt và Lầu 1, R-05 tòa nhà Riverpark Premier, Số 31 Đường Đặng Đức Thuật, Phường Tân Hưng, Quận 7, TP. HCM", "lat": 10.7224, "lng": 106.7031},
+            {"name": "Starbucks Landmark 81", "model": "SE", "address": "Lô L1-26, Tầng L1, TTTM Vincom Center Landmark 81, số 772 Điện Biên Phủ, Phường Thạnh Mỹ Tây, Quận Bình Thạnh, TP. HCM", "lat": 10.7948, "lng": 106.7218},
+            {"name": "Starbucks Vincom Đồng Khởi", "model": "SE", "address": "Lô B2-02-02A, Tầng B2, TTTM Vincom Center Đồng Khởi, Số 72 Lê Thánh Tôn, Phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7779, "lng": 106.7020},
+            {"name": "Starbucks Gold View", "model": "SE", "address": "Lô L1-02A, Tầng 1, TTTM The Gold View, Số 346 Bến Vân Đồn, Phường Vĩnh Hội, Quận 4, TP. HCM", "lat": 10.7585, "lng": 106.6942},
+            {"name": "Starbucks Sense City", "model": "SE", "address": "T-23 Tầng 1, TTTM Sense City Phạm Văn Đồng, 240-242 đường Kha Vạn Cân, Phường Hiệp Bình, TP. Thủ Đức, TP. HCM", "lat": 10.8273, "lng": 106.7211},
+            {"name": "Starbucks Saigon Centre", "model": "SE", "address": "L2-01, Tầng 2, Cao ốc phức hợp Saigon Center, Số 67 Lê Lợi, Phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7725, "lng": 106.7011},
+            {"name": "Starbucks Happy Residence", "model": "SE", "address": "Số 206 Đường Nguyễn Lương Bằng, Khu Dân Cư Hưng Phúc, Phường Tân Mỹ, Quận 7, TP. HCM", "lat": 10.7155, "lng": 106.7161},
+            {"name": "Starbucks Etown 5", "model": "SE", "address": "Phòng G.2A, Tầng trệt, Cao ốc văn phòng Etown 5, 364 Cộng Hòa, Phường Tân Bình, TP. HCM", "lat": 10.8021, "lng": 106.6416},
+            {"name": "Starbucks Saigon Mia", "model": "SE", "address": "L1-04, Tầng 1, Đường số 9A, Chung cư Cụm III, IV - Khu dân cư Trung Sơn, Xã Bình Hưng, Huyện Bình Chánh, TP. HCM", "lat": 10.7423, "lng": 106.6811},
+            {"name": "Starbucks Saigon Pearl", "model": "SE", "address": "GF-01A, Tầng trệt, Tòa nhà Topaz 1 và 2, số 92, Đường Nguyễn Hữu Cảnh, Phường Thạnh Mỹ Tây, Quận Bình Thạnh, TP. HCM", "lat": 10.7895, "lng": 106.7185},
+            {"name": "Starbucks Lotte Nam Sài Gòn", "model": "Core", "address": "1F76 +1F77, Tầng 1, Lotte Mart Nam Sài Gòn, 469 Nguyễn Hữu Thọ, Phường Tân Hưng, Quận 7, TP. HCM", "lat": 10.7523, "lng": 106.6978},
+            {"name": "Starbucks Lotte Pico", "model": "SE", "address": "1F - 02, Tầng 1, Lotte Mart Tân Bình, Số 20, Đường Cộng Hòa, Phường Bảy Hiền, Quận Tân Bình, TP. HCM", "lat": 10.8001, "lng": 106.6528},
+            {"name": "Starbucks Mê Linh Point", "model": "SE", "address": "G3, Tầng trệt, Tòa nhà Mê Linh Point, số 2 Đường Ngô Đức Kế, Phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7741, "lng": 106.7061},
+            {"name": "Starbucks Urban Hill", "model": "SE", "address": "Retail 3, Khu phố Urban Hill, Số 51 Nguyễn Văn Linh, Phường Tân Hưng, Quận 7, TP. HCM", "lat": 10.7251, "lng": 106.7058},
+            {"name": "Starbucks Golden Mansion", "model": "SE", "address": "Lô TM 1.01, Tầng 1, Tòa nhà Golden Mansion, Số 119 Phổ Quang, Phường Đức Nhuận, Quận Phú Nhuận, TP. HCM", "lat": 10.8015, "lng": 106.6713},
+            {"name": "Starbucks Thảo Điền Pearl", "model": "Modular", "address": "L1-04+L1-04T, Số 12 đường Quốc Hương, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.8033, "lng": 106.7303},
+            {"name": "Starbucks Saigon Royal", "model": "SE", "address": "Lô TM 1.01, Tầng 1, Tháp SaiGon Royal A, 34-35 Bến Vân Đồn, Phường Xóm Chiếu, Quận 4, TP. HCM", "lat": 10.7631, "lng": 106.7048},
+            {"name": "Starbucks Emporium", "model": "SE", "address": "A1-01B Tầng 1, Tòa nhà Bảo Gia, Số 184 Lê Đại Hành, Phường Phú Thọ, Quận 11, TP. HCM", "lat": 10.7645, "lng": 106.6533},
+            {"name": "Starbucks Hưng Phước", "model": "Modular", "address": "Tầng trệt, Số 45-47 Đường Nội khu Hưng Phước II, Phường Tân Hưng, Quận 7, TP. HCM", "lat": 10.7291, "lng": 106.7112},
+            {"name": "Starbucks Aeon Bình Tân", "model": "Modular", "address": "Lô số G9B, Tầng trệt, Trung tâm thương mại Aeon Mall Bình Tân, Số 01, Đường số 17A, Phường An Lạc, Quận Bình Tân, TP. HCM", "lat": 10.7428, "lng": 106.6115},
+            {"name": "Starbucks Feliz En Vista", "model": "SE", "address": "RT-7, Số 1 Phan Văn Đáng, Phường Cát Lái, TP. Thủ Đức, TP. HCM", "lat": 10.7571, "lng": 106.7513},
+            {"name": "Starbucks Thiso Mall", "model": "SE", "address": "L1-06 và L1-07 Tầng trệt TTTM Thiso Mall Sala, Số 8-10 đường Mai Chí Thọ, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.7711, "lng": 106.7235},
+            {"name": "Starbucks Aeon Tân Phú", "model": "Modular", "address": "Lô G23B Tầng trệt TTTM Aeon Mall Tân Phú Celadon, số 30 đường Tân Thắng, Phường Tân Sơn Nhì, Quận Tân Phú, TP. HCM", "lat": 10.8012, "lng": 106.6162},
+            {"name": "Starbucks Midtown", "model": "SE", "address": "Số 27, Lô M7, đường số 15, Khu A - Đô thị mới Nam thành phố, Phường Tân Mỹ, Quận 7, TP. HCM", "lat": 10.7201, "lng": 106.7165},
+            {"name": "Starbucks Sun Avenue", "model": "SE", "address": "SAV.2-00.10, Tầng trệt, Tháp SAV2, Số 28 Đại lộ Mai Chí Thọ, Phường Bình Trưng, TP. Thủ Đức, TP. HCM", "lat": 10.7781, "lng": 106.7492},
+            {"name": "Starbucks Vinhome Central 2", "model": "SE", "address": "C2-SH.01, tòa Central 2 Vinhomes Central Park, Số 720A Điện Biên Phủ, Phường Thạnh Mỹ Tây, Quận Bình Thạnh, TP. HCM", "lat": 10.7925, "lng": 106.7214},
+            {"name": "Starbucks Nguyễn Thị Minh Khai", "model": "SE", "address": "Số 82 Nguyễn Thị Minh Khai, Phường Xuân Hòa, Quận 3, TP. HCM", "lat": 10.7812, "lng": 106.6948},
+            {"name": "Starbucks Cobi", "model": "SE", "address": "GF-102A Tầng Trệt Tòa nhà Cobi Tower II, Số 2-4 Đường Số 8, Phường Tân Mỹ, Quận 7, TP. HCM", "lat": 10.7215, "lng": 106.7118},
+            {"name": "Starbucks Diamond Plaza Hồ Chí Minh", "model": "SE", "address": "Gian hàng XA12505 Tầng 1 và Tầng 3, Diamond Plaza, 34 Lê Duẩn, phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7818, "lng": 106.6985},
+            {"name": "Starbucks Van Lang University", "model": "Modular", "address": "69/68 Đặng Thùy Trâm, Phường Bình Lợi Trung, Quận Bình Thạnh, TP. HCM", "lat": 10.8251, "lng": 106.6982},
+            {"name": "Starbucks Union Square", "model": "SE", "address": "171 Đồng Khởi, Bến Nghé, Quận 1, TP. HCM", "lat": 10.7758, "lng": 106.7019},
+            {"name": "Starbucks Vincom Mega Mall Thảo Điền", "model": "Modular", "address": "Lô L1-10, Tầng L1, Tòa nhà Trung tâm thương mại Vincom Mega Mall Thảo Điền, số 161 Xa lộ Hà Nội,, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.8019, "lng": 106.7425},
+            {"name": "Starbucks Kim Long Villa", "model": "SE", "address": "Một phần tầng trệt Biệt thự KL53 số nhà 04 và Biệt thự KL55 số nhà 02, KDC Phú Long, đường Nguyễn Hữu Thọ, Xã Nhà Bè, TP. HCM", "lat": 10.7091, "lng": 106.6998},
+            {"name": "Starbucks Waterbus Bạch Đằng", "model": "SE", "address": "10B Tôn Đức Thắng, phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7722, "lng": 106.7068},
+            {"name": "Starbucks Q2 Terrace", "model": "SE", "address": "Số 01.12 – 01.12A Tầng 1, 21 Võ Trường Toản, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.8031, "lng": 106.7408},
+            {"name": "Starbucks Celadon Boulevard", "model": "Core", "address": "S1.0.37, Tầng trệt và tầng 1 Khối đế P1 Khu A5 Diamond – Celadon City, Số 3 Đường N1, Phường Tân Sơn Nhì, Quận Tân Phú, TP. HCM", "lat": 10.8005, "lng": 106.6148},
+            {"name": "Starbucks Golden Plaza", "model": "SE", "address": "G-002, Tầng G (Tầng 1), số 922 Nguyễn Trãi, Phường Chợ Lớn, Quận 5, TP. HCM", "lat": 10.7519, "lng": 106.6568},
+            {"name": "Starbucks编CII Tower", "model": "SE", "address": "Khu thương mại G1, Tầng 1 (Tầng trệt), Tòa nhà CII Tower số 152 Điện Biên Phủ, Phường Thạnh Mỹ Tây, Quận Bình Thạnh, TP. HCM", "lat": 10.7995, "lng": 106.7135},
+            {"name": "Starbucks Hùng Vương Plaza", "model": "SE", "address": "1F-10 Tầng 01, Số 126 Hồng Bàng, Phường Chợ Lớn, Quận 5, TP. HCM", "lat": 10.7562, "lng": 106.6609},
+            {"name": "Starbucks Vinhome Origami", "model": "SE", "address": "Số 1.04 tại tầng 1, Tòa chung cư S6.05 thuộc KDC Phước Thiện, số 88 đường Phước Thiện, Phường Long Bình, Quận 9, TP. HCM", "lat": 10.8395, "lng": 106.8412},
+            {"name": "Starbucks The Waterfront Saigon", "model": "SE", "address": "Lô G.02, Tầng 1 (Tầng Trệt), số 1-1A-2 đường Tôn Đức Thắng, phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7745, "lng": 106.7065},
+            {"name": "Starbucks Waterbus Thủ Thiêm", "model": "SE", "address": "16Bis-4 Công viên bờ sông Sài Gòn, đường Nguyễn Thiện Thành, Phường An Khánh, TP. Thủ Đức, TP. HCM", "lat": 10.7731, "lng": 106.7168},
+            // --- TỌA ĐỘ VNG CAMPUS ĐÃ ĐƯỢC ĐIỀU CHỈNH CHUẨN XÁC VỀ TRỤ SỞ ---
+            {"name": "Starbucks VNG Campus", "model": "Modular", "address": "Z06 Đường số 13, KCX Tân Thuận, Phường Tân Thuận Đông, Quận 7, TP. HCM", "lat": 10.741673, "lng": 106.737119},
+            {"name": "Starbucks Vinhome Glory Heights", "model": "SE", "address": "SH03-04, Tầng 1 toà nhà GH06, Vinhomes Grand Park, Phường Long Bình, TP. HCM", "lat": 10.8381, "lng": 106.8395},
+            {"name": "Starbucks Quang Trung Hồ Chí Minh", "model": "Core", "address": "Ki - ốt A16, 647 Quang Trung, Phường Thông Tây Hội, Quận Gò Vấp, TP. HCM", "lat": 10.8291, "lng": 106.6612},
+            {"name": "Starbucks Bitexco", "model": "Specialist", "address": "Lô GF-04, Tầng 1 (Tầng trệt), Tòa nhà Bitexco Financial Tower, số 45 Ngô Đức Kế, Phường Sài Gòn, Quận 1, TP. HCM", "lat": 10.7716, "lng": 106.7044},
+
+            // --- KHU VỰC THÀNH PHỐ HÀ NỘI ---
+            {"name": "Starbucks Bà Triệu", "model": "SE", "address": "Số 314 phố Bà Triệu, Phường Hai Bà Trưng, Hà Nội", "lat": 21.0118, "lng": 105.8492},
+            {"name": "Starbucks The Loop", "model": "SE", "address": "Ô số 124, Tầng 1, Trung tâm thương mại IPH, số 241 Đường Xuân Thủy, Phường Cầu Giấy, Hà Nội", "lat": 21.0361, "lng": 105.7825},
+            {"name": "Starbucks The Garden", "model": "SE", "address": "Gian hàng FB-03 tầng G, khu trung tâm thương mại The Garden, KĐT The Manor, đường Mễ Trì, Phường Từ Liêm, Hà Nội", "lat": 21.0165, "lng": 105.7788},
+            {"name": "Starbucks Vincom Phạm Ngọc Thạch", "model": "SE", "address": "Lô L1-01-04 Trung tâm thương mại Vincom Phạm Ngọc Thạch, Số 2 Phố Phạm Ngọc Thạch, Phường Kim Liên, Hà Nội", "lat": 21.0061, "lng": 105.8322},
+            {"name": "Starbucks Somerset", "model": "SE", "address": "Số 2 Phố Tây Hồ, Phường Tây Hồ, Hà Nội", "lat": 21.0622, "lng": 105.8285},
+            {"name": "Starbucks The Church", "model": "Specialist", "address": "Tầng 1 Asia Tower, số 6 phố Nhà Thờ, Phường Hàng Trống, Quận Hoàn Kiếm, Hà Nội", "lat": 21.0285, "lng": 105.8488},
+            {"name": "Starbucks CharmVit", "model": "Modular", "address": "Tầng 1 CharmVit Tower, Số 117 Phố Trần Duy Hưng, Phường Yên Hòa, Hà Nội", "lat": 21.0089, "lng": 105.7985},
+            {"name": "Starbucks Landmark 72", "model": "Core", "address": "Tầng 1, Keangnam Hanoi Landmark Tower, Khu Đô thị mới Cầu Giấy, Phường Yên Hòa, Hà Nội", "lat": 21.0169, "lng": 105.7839},
+            {"name": "Starbucks Duy Tân", "model": "SE", "address": "Số 32-34 Phố Duy Tân, Phường Cầu Giấy, Hà Nội", "lat": 21.0298, "lng": 105.7852},
+            {"name": "Starbucks The Legend", "model": "SE", "address": "Tầng trệt, Tòa nhà The Legend, 109 Nguyễn Tuân, Phường Thanh Xuân, Hà Nội", "lat": 21.0002, "lng": 105.8015},
+            {"name": "Starbucks Season Avenue", "model": "SE", "address": "Lô 01, S4 Tower, Lô CT09, Khu Cổ Ngựa, KĐT mơi Mỗ Lao, Phường Đại Mỗ, Hà Nội", "lat": 20.9789, "lng": 105.7801},
+            {"name": "Starbucks Vincom Metropolis", "model": "Core", "address": "Lô L1-16B, tầng L1, Vincom Center Liễu Giai, số 29 Liễu Giai, Phường Ngọc Hà, Hà Nội", "lat": 21.0322, "lng": 105.8115},
+            {"name": "Starbucks Vincom Star City", "model": "SE", "address": "Lô L1- 08B, tầng L1, TTTM Vincom Center Trần Duy Hưng, Phường Thanh Xuân, Hà Nội", "lat": 21.0078, "lng": 105.7965},
+            {"name": "Starbucks Noi Bai Domestic Gate 02", "model": "SE", "address": "Cánh B, Tầng 2, Khu vực cách ly Nhà ga T1, Cảng hàng không quốc tế Nội Bài, Xã Nội Bài, Hà Nội", "lat": 21.2215, "lng": 105.8075},
+            {"name": "Starbucks Vinmec Hanoi", "model": "SE", "address": "Tầng 1, Tòa nhà 7 tầng Vinmec Times City, Số 458 Phố Minh Khai, Phường Vĩnh Tuy, Hà Nội", "lat": 20.9961, "lng": 105.8672},
+            {"name": "Starbucks Aeon Ha Dong", "model": "SE", "address": "T160-161, Tầng 1, TTTM Aeon Mall Hà Đông, Phường Dương Nội, Hà Nội", "lat": 20.9795, "lng": 105.7485},
+            {"name": "Starbucks Vincom Royal City", "model": "SE", "address": "SO-18, Tòa R3, Nhà R3 - 72 Phố Nguyễn Trãi, Phường Thanh Xuân, Hà Nội", "lat": 21.0028, "lng": 105.8152},
+            {"name": "Starbucks Tasco Mall", "model": "SE", "address": "Gian 105A, TTTM TASCO Mall, Số 7-9, đường Nguyễn Văn Linh, Phường Việt Hưng, Hà Nội", "lat": 21.0528, "lng": 105.8951},
+            {"name": "Starbucks Trung Hòa", "model": "SE", "address": "101 Trung Hòa, Phường Yên Hòa, Hà Nội", "lat": 21.0115, "lng": 105.7972},
+            {"name": "Starbucks Noi Bai Intl Gate 28", "model": "SE", "address": "3-E31C1, tầng 3, Ga quốc tế T2, cảng hàng không quốc tế Nội Bài, Xã Nội Bài, Hà Nội", "lat": 21.2185, "lng": 105.8112},
+            {"name": "Starbucks Pacific Place", "model": "Modular", "address": "Phòng R105, Tầng 1, Pacific Place, số 83B Lý Thường Kiệt, Phường Cửa Nam, Hà Nội", "lat": 21.0252, "lng": 105.8450},
+            {"name": "Starbucks Aeon Long Biên", "model": "Modular", "address": "T152, Tầng một TTTM Aeon Mall Long Biên, số 27 Đường Cổ Linh, Phường Long Biên, Hà Nội", "lat": 21.0263, "lng": 105.8972},
+            {"name": "Starbucks Vincom Long Bien", "model": "SE", "address": "L1-116, tầng L1 TTTM Vincom Long Biên, Phường Phúc Lợi, Hà Nội", "lat": 21.0425, "lng": 105.9145},
+            {"name": "Starbucks Golden Field", "model": "Core", "address": "Tầng 01+02, tòa nhà Golden Field, Khu ĐTM Mỹ Đình I, Phường Từ Liêm, Hà Nội", "lat": 21.0284, "lng": 105.7663},
+            {"name": "Starbucks Lotte West Lake", "model": "SE", "address": "Lô 167, tầng 1, TTTM Lotte Mall Hà Nội, Số 272 đường Võ Chí Công, phường Tây Hồ, Hà Nội", "lat": 21.0745, "lng": 105.8098},
+            {"name": "Starbucks Nguyen Huu Huan", "model": "SE", "address": "Số 32 – 34 phố Nguyễn Hữu Huân, Phường Hoàn Kiếm, Hà Nội", "lat": 21.0328, "lng": 105.8552},
+            {"name": "Starbucks Ocean Park Hai Au Villa", "model": "SE", "address": "Lô Thương Mại HA01-SP.SB-32, KĐT Vinhomes Ocean Park, Xã Gia Lâm, Hà Nội", "lat": 20.9942, "lng": 105.9495},
+            {"name": "Starbucks Lotte Lieu Giai", "model": "SE", "address": "F1-C07, Tầng 1 TTTM Lotte Department Store, 54 Liễu Giai, Phường Giảng Võ, Hà Nội", "lat": 21.0319, "lng": 105.8118},
+            {"name": "Starbucks Noi Bai Domestic Gate 12", "model": "Modular", "address": "Tầng 2, Cánh A, Khu vực cách ly Nhà ga T1, Sân bay Nội Bài, Xã Nội Bài, Hà Nội", "lat": 21.2212, "lng": 105.8072},
+            {"name": "Starbucks Vinhomes Skylake", "model": "SE", "address": "S2O01 tại tầng 1 và tầng 2 Tòa S2, Khu đô thị mới Cầu Giấy, Phường Cầu Giấy, Hà Nội", "lat": 21.0195, "lng": 105.7818},
+            {"name": "Starbucks Ocean Park S2", "model": "SE", "address": "Gian hàng 01S05, Tầng 1, Ô đất B2-CT01 Tòa U26 (S2.03) Vinhomes Ocean Park, Xã Gia Lâm, Hà Nội", "lat": 20.9915, "lng": 105.9422},
+            {"name": "Starbucks Ha Noi Post Office", "model": "SE", "address": "Tầng 1, số 87 Đinh Tiên Hoàng, Phường Hoàn Kiếm, Hà Nội", "lat": 21.0271, "lng": 105.8524},
+            {"name": "Starbucks Fine Arts Museum", "model": "SE", "address": "Lô B và Lô C (khu vực kho), số 66 Nguyễn Thái Học, Phường Ba Đình, Hà Nội", "lat": 21.0305, "lng": 105.8395},
+            {"name": "Starbucks Noi Bai Intl Gate 40", "model": "Modular", "address": "Khu vực cách ly Nhà ga T2, mã 3-W33C1, Tầng 3, Cánh Tây, Xã Nội Bài, Hà Nội", "lat": 21.2188, "lng": 105.8095},
+            {"name": "Starbucks Rox Center", "model": "Core", "address": "T1 – 10, Tầng 01, tòa nhà thương mại dịch vụ Số 136 Hồ Tùng Mậu, Phường Phú Diễn, Hà Nội", "lat": 21.0401, "lng": 105.7682},
+            {"name": "Starbucks Noi Bai Domestic Gate 6", "model": "Modular", "address": "Khu vực cách ly Nhà ga T1, mã 2-D6D7-DLDM, Tầng 2, Xã Nội Bài, Hà Nội", "lat": 21.2210, "lng": 105.8068},
+            {"name": "Starbucks Viet Tower", "model": "Modular", "address": "Lô T5, Tầng 1 (Tầng trệt), Tòa nhà Viet Tower, số 1 – 2, phố Thái Hà,, Phường Đống Đa, Hà Nội", "lat": 21.0119, "lng": 105.8235},
+            {"name": "Starbucks Diamond Plaza Ha Noi", "model": "Modular", "address": "Số L1-02, Tầng 1, Tòa nhà Diamond Plaza, Số 25 Đường Lê Văn Lương, Phường Thanh Xuân, Hà Nội", "lat": 21.0068, "lng": 105.8028},
+            {"name": "Starbucks Hang Dieu", "model": "Specialist", "address": "Số 54 Hàng Điếu, Phường Hoàn Kiếm, Thành phố Hà Nội", "lat": 21.0335, "lng": 105.8465},
+            {"name": "Starbucks Quang Trung HN", "model": "Core", "address": "6A phố Quang Trung, Phường Cửa Nam, Hà Nội", "lat": 21.0235, "lng": 105.8492},
+            {"name": "Starbucks Ha Noi Centre", "model": "SE", "address": "Tiến Bộ Plaza, Số 175 Nguyễn Thái Học, Phường Điện Biên, Hà Nội", "lat": 21.0311, "lng": 105.8335},
+
+            // --- KHU VỰC ĐÀ NẴNG ---
+            {"name": "Starbucks Bạch Đằng ĐN", "model": "Core", "address": "Tầng trệt, Khu phức hợp khách sạn Bạch Đằng, số 50 Bạch Đằng, Phường Hải Châu, Đà Nẵng", "lat": 16.0718, "lng": 108.2245},
+            {"name": "Starbucks Ba Na Hills", "model": "Core", "address": "Tầng trệt Khách sạn Morin, Cụm đỉnh trung tâm KDL Bà Nà Suối Mơ, Xã Bà Nà, Đà Nẵng", "lat": 15.9995, "lng": 107.9875},
+            {"name": "Starbucks Ba Na Main Gate", "model": "Modular", "address": "Tầng 2, Cổng Thành, thuộc quần thể KDL Bà Nà Suối Mơ, Xã Bà Nà, Đà Nẵng", "lat": 16.0212, "lng": 108.0168},
+            {"name": "Starbucks Vincom Ngô Quyền", "model": "SE", "address": "Lô L1-11, Tầng L1 TTTM VinCom Center Ngô Quyền Đà Nẵng, số 910A Ngô Quyền, Phường An Hải, Đà Nẵng", "lat": 16.0712, "lng": 108.2331},
+            {"name": "Starbucks Trần Hưng Đạo Danang", "model": "SE", "address": "Tầng trệt, số 218 Trần Hưng Đạo, Phường An Hải, Đà Nẵng", "lat": 16.0618, "lng": 108.2295},
+            {"name": "Starbucks Nesta Hotel", "model": "SE", "address": "Tầng trệt Khu nhà B, Khách sạn Nesta Đà Nẵng, Số 268 đường Võ Nguyên Giáp, Phường Ngũ Hành Sơn, Đà Nẵng", "lat": 16.0525, "lng": 108.2464},
+            {"name": "Starbucks Ba Na Golden Bridge", "model": "Modular", "address": "Khu vực Vòng Xuyến (Ga cáp treo số 10 và 11) KDL Sun World Ba Na Hills, Xã Bà Nà, Đà Nẵng", "lat": 15.9981, "lng": 107.9918},
+            {"name": "Starbucks Dragon Carp Da Nang", "model": "Specialist", "address": "Bến du thuyền Marina, thửa đất số 124, đường Trần Hưng Đạo, phường An Hải, Đà Nẵng", "lat": 16.0610, "lng": 108.2285},
+            {"name": "Starbucks Nesta Celia", "model": "Core", "address": "254 đường Võ Nguyên Giáp, Phường An Hải, Đà Nẵng", "lat": 16.0545, "lng": 108.2461},
+            {"name": "Starbucks Lotte Da Nang", "model": "SE", "address": "Số 06 Nại Nam, Phường Hòa Cường, TP. Đà Nẵng", "lat": 16.0335, "lng": 108.2305},
+
+            // --- KHU VỰC HẢI PHÒNG ---
+            {"name": "Starbucks Tran Phu Hai Phong", "model": "Core", "address": "Tầng 1 và Tầng 2, số 111 đường Trần Phú, phường Gia Viên, Hải Phòng", "lat": 20.8581, "lng": 106.6852},
+            {"name": "Starbucks Văn Cao", "model": "SE", "address": "185-187 phố Văn Cao, Phường Gia Viên, Hải Phòng", "lat": 20.8465, "lng": 106.6995},
+            {"name": "Starbucks Lê Hồng Phong", "model": "SE", "address": "Thửa đất số 14, Khu B1, Lô 7B KĐT Ngã Năm - Sân bay Cát Bi, Phường Gia Viên, Hải Phòng", "lat": 20.8512, "lng": 106.7088},
+            {"name": "Starbucks Sentosa Hai Phong", "model": "SE", "address": "Sentosa Sky Park, ngã 4 Bùi Viện & Võ Nguyên Giáp, Phường Lê Chân, Hải Phòng", "lat": 20.8288, "lng": 106.6912},
+
+            // --- KHU VỰC NHA TRANG (KHÁNH HÒA) ---
+            {"name": "Starbucks Vinwonders Nha Trang", "model": "SE", "address": "FB-08, Khu Công viên giải trí Vinwonders Nha Trang, Đảo Hòn Tre, Phường Nha Trang, Khánh Hòa", "lat": 12.2185, "lng": 109.2422},
+            {"name": "Starbucks Vinpearl Beachfront", "model": "SE", "address": "Tầng 1 Vinpearl Condotel Beachfront, số 78, đường Trần Phú, phường Nha Trang, Khánh Hòa", "lat": 12.2388, "lng": 109.1965},
+            {"name": "Starbucks Nha Trang Center", "model": "SE", "address": "GF24, Tầng trệt, Trung Tâm Thương Mại Nha Trang, số 20 Trần Phú, Phường Nha Trang, Khánh Hòa", "lat": 12.2491, "lng": 109.1958},
+            {"name": "Starbucks Vinpearl Habour Nha Trang", "model": "Modular", "address": "Ô số ST01, Khu nhà ga cáp treo Vinpearl Phú Quý, Phường Vĩnh Nguyên, Nha Trang, Khánh Hòa", "lat": 12.2178, "lng": 109.2435},
+            {"name": "Starbucks Cam Ranh Domestic Gate 1", "model": "Modular", "address": "AK1.1, Khu vực cách ly ga đi nội địa T1, Sân bay quốc tế Cam Ranh, Khánh Hòa", "lat": 11.9982, "lng": 109.2195},
+
+            // --- KHU VỰC PHÚ QUỐC (KIÊN GIANG) ---
+            {"name": "Starbucks Vinpearl Safari Phu Quoc", "model": "Modular", "address": "Công trình căn F3, Khu Phố Mua sắm Công Viên Safari Phú Quốc, Gành Dầu, Phú Quốc, Kiên Giang", "lat": 10.3325, "lng": 103.8925},
+            {"name": "Starbucks Beach House Sun Primavera", "model": "SE", "address": "FB2-03, Khu vực Nhà hàng Zone 2 Địa Trung Hải, Phú Quốc, Kiên Giang", "lat": 10.0065, "lng": 104.0182},
+            {"name": "Starbucks Vinwonders Phu Quoc", "model": "SE", "address": "CTXD số QT-VW6-01 và QT-VW6-02, Khu Bãi Dài, Phú Quốc, Kiên Giang", "lat": 10.3295, "lng": 103.8611},
+            {"name": "Starbucks Sun World Hon Thom", "model": "Modular", "address": "Nhà Ga Đi, Khu Phố 5, An Thới, Phú Quốc, Kiên Giang", "lat": 10.0268, "lng": 104.0092},
+            {"name": "Starbucks Phu Quoc Intl Gate 05", "model": "Modular", "address": "FD23, Cửa ra máy bay số 5, Khu cách ly ga quốc tế, Sân bay Phú Quốc, Kiên Giang", "lat": 10.1691, "lng": 103.9912},
+            {"name": "Starbucks Vincom Rach Gia", "model": "SE", "address": "Lô L1-06, tầng L1, Vincom Plaza Rạch Giá, Lô A12, đường Cô Bắc, Rạch Giá, Kiên Giang", "lat": 9.9658, "lng": 105.0812},
+
+            // --- CÁC TỈNH THÀNH KHÁC ---
+            {"name": "Starbucks Aeon Binh Duong", "model": "SE", "address": "Lô G31, Tầng trệt, Trung tâm mua sắm Aeon - Bình Dương Canary, Đại lộ Bình Dương, Thuận An, Bình Dương", "lat": 10.9322, "lng": 106.7128},
+            {"name": "Starbucks Sora Mall", "model": "SE", "address": "Vị trí 102, Tầng 1, Lô C19, Đại lộ Hùng Vương, TP. Mới Bình Dương, Bình Dương", "lat": 11.0525, "lng": 106.6622},
+            {"name": "Starbucks Hikari", "model": "Modular", "address": "Lô M3, Tầng trệt, khu phức hợp Hikari tại Lô A11, Khu Đô Thị Mới, Bình Dương", "lat": 11.0542, "lng": 106.6665},
+            {"name": "Starbucks開放Trần Hưng Đạo Hội An", "model": "SE", "address": "40 Trần Hưng Đạo, Phường Cẩm Phô, TP. Hội An, Quảng Nam", "lat": 15.8791, "lng": 108.3285},
+            {"name": "Starbucks Song Huong", "model": "Core", "address": "Tầng trệt (tầng 1) – Công viên 3/2 đường Lê Lợi, Phường Thuận Hóa, TP. Huế", "lat": 16.4678, "lng": 107.5855},
+            {"name": "Starbucks Ngo Gia Tu Long Xuyen", "model": "Core", "address": "Tầng trệt và tầng 1, số 01 Ngô Gia Tự, Phường Long Xuyên, Tỉnh An Giang", "lat": 10.3732, "lng": 105.4372},
+            {"name": "Starbucks Tran An Ninh Binh", "model": "Modular", "address": "S01 - Khu Bến xe Trung tâm – Khu Du lịch sinh thái Tràng An, Hoa Lư, Tỉnh Ninh Bình", "lat": 20.2528, "lng": 105.8942},
+            {"name": "Starbucks Trang An Boat Dock", "model": "Core", "address": "Khu Bến Thuyền – Khu du lịch sinh thái Tràng An, Hoa Lư, Ninh Bình", "lat": 20.2533, "lng": 105.8955},
+            {"name": "Starbucks Vincom Vinh", "model": "SE", "address": "Tòa nhà Vincom Plaza Vinh, Thửa đất số 187, đường Quang Trung, thành phố Vinh, Nghệ An", "lat": 18.6735, "lng": 105.6811},
+            {"name": "Starbucks Aeon Tan An", "model": "SE", "address": "TTTM Aeon Mall Tân An, số 88, Quốc Lộ 1, Phường Long An, Tỉnh Long An", "lat": 10.5361, "lng": 106.4131},
+            {"name": "Starbucks Vincom Bac Ninh", "model": "SE", "address": "L1-12A, Ngã 6 mặt đường Lý Thái Tổ và đường Trần Hưng Đạo, phường Kinh Bắc, Tỉnh Bắc Ninh", "lat": 21.1833, "lng": 106.0667},
+            {"name": "Starbucks Vincom Thanh Hoa", "model": "SE", "address": "Số L1-06-06A - TTTM Vincom Plaza Thanh Hoá, số 27 đường Trần Phú, Thanh Hoá", "lat": 19.8075, "lng": 105.7761},
+            {"name": "Starbucks Vincom Ha Tinh", "model": "SE", "address": "Lô L1-05A Tòa nhà Vincom Plaza, Góc Ngã tư đường Hàm Nghi và Hà Huy Tập, Hà Tĩnh", "lat": 18.3425, "lng": 105.9042},
+            {"name": "Starbucks Galaxy Tulips", "model": "SE", "address": "SMB5, Tầng 2, Tòa nhà Galaxy Tulips, số 05 đường Nguyễn Thị Minh Khai, Đà Lạt, Lâm Đồng", "lat": 11.9422, "lng": 108.4375},
+            {"name": "Starbucks Sun World Ba Den", "model": "Modular", "address": "Tầng 3 Zone B Trục tâm linh Núi Bà Đen, Khu phố Ninh Phú, Tỉnh Tây Ninh", "lat": 11.3712, "lng": 106.1688},
+            {"name": "Starbucks Sapa Fansipan", "model": "Modular", "address": "Ga đến Cáp treo khu du lịch Sun World Fansipan Legend, số 89B Nguyễn Chí Thanh, Sa Pa, Lào Cai", "lat": 22.3025, "lng": 103.7821},
+            {"name": "Starbucks Sun Plaza Sapa", "model": "SE", "address": "Lô T1, Tòa Nhà Sun Plaza, số 01, đường Hoàng Liên, phường Sa Pa, Tỉnh Lào Cai", "lat": 22.3331, "lng": 103.8428},
+            {"name": "Starbucks Vo Thi Sau", "model": "SE", "address": "Tầng trệt, số 49 đường Võ Thị Sáu, Khu phố 11, TP. Biên Hòa, Tỉnh Đồng Nai", "lat": 10.9495, "lng": 106.8188},
+            {"name": "Starbucks Vincom My Tho", "model": "Core", "address": "Lô L1-04, Tầng 1 Trung Tâm Thương Mại Vincom Mỹ Tho, Số 1A đường Hùng Vương, Mỹ Tho, Tiền Giang", "lat": 10.3625, "lng": 106.3608},
+            {"name": "Starbucks Halong Cruise Port", "model": "Modular", "address": "Số B1.2, Toà nhà Ga Cảng tàu khách Quốc tế Hạ Long, số 9 đường Hạ Long, Bãi Cháy, Quảng Ninh", "lat": 20.9588, "lng": 107.0372},
+            {"name": "Starbucks Vincom Ha Long", "model": "SE", "address": "Lô L1-17, Tầng L1, TTTM Vincom Plaza Hạ Long, Khu cột Đồng Hồ, phường Hồng Gai, Tỉnh Quảng Ninh", "lat": 20.9512, "lng": 107.0852},
+            {"name": "Starbucks Ecopark", "model": "SE", "address": "Tầng 1, công trình tiện ích tại khu đô thị thương mại và dịch vụ Văn Giang (ECOPARK), Hưng Yên", "lat": 20.9592, "lng": 105.9298}
+        ];
+
+        // --- KHỞI TẠO BẢN ĐỒ ---
+        const map = L.map('map').setView([15.5000, 108.0000], 6);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let activeMarkers = [];
+        let radiusCircle = null; // Quản lý vòng tròn bán kính hình học 25km
+        let selectedCenterPoint = null; // Quản lý điểm click trung tâm
+
+        // =========================================================================
+        // THUẬT TOÁN HAVERSINE: TÍNH KHOẢNG CÁCH ĐỊA LÝ THEO KM GIỮA 2 TỌA ĐỘ GPS
+        // =========================================================================
+        function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Bán kính thực tế của Trái Đất (km)
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c; // Trả về số km (Ví dụ: 4.5 km)
+        }
+
+        // --- HÀM XỬ LÝ IN HỆ THỐNG CỬA HÀNG ---
+        function renderStoreSystem(stores, centerPoint = null) {
+            const listContainer = document.getElementById('store-list');
+            const counterLabel = document.getElementById('store-count');
+            
+            listContainer.innerHTML = '';
+            counterLabel.innerText = `Tìm thấy ${stores.length} cửa hàng hợp lệ`;
+
+            // Xóa ghim cũ trên bản đồ
+            activeMarkers.forEach(m => map.removeLayer(m));
+            activeMarkers = [];
+
+            // Nếu đang bật chế độ lọc bán kính, sắp xếp cửa hàng gần nhất lên đầu tiên
+            if (centerPoint) {
+                stores.sort((a, b) => a.distance - b.distance);
+            }
+
+            stores.forEach(store => {
+                const marker = L.marker([store.lat, store.lng]).addTo(map);
+                
+                let distanceText = centerPoint ? `<p style="color:#D97706"><b>📏 Khoảng cách:</b> ${store.distance.toFixed(1)} km</p>` : '';
+
+                marker.bindPopup(`
+                    <div class="popup-container">
+                        <h2>${store.name}</h2>
+                        <p>📍 ${store.address}</p>
+                        <p>🔹 Loại hình: <b>${store.model}</b></p>
+                        ${distanceText}
+                    </div>
+                `);
+                activeMarkers.push(marker);
+
+                const itemCard = document.createElement('div');
+                itemCard.className = 'store-item';
+                
+                // Hiển thị badge khoảng cách nếu chế độ quét 25km đang chạy
+                let badgeHtml = centerPoint ? `<span class="distance-badge">${store.distance.toFixed(1)} km</span>` : `<span class="model-badge">${store.model}</span>`;
+
+                itemCard.innerHTML = `
+                    <div class="store-title-container">
+                        <h3>${store.name}</h3>
+                        ${badgeHtml}
+                    </div>
+                    <p>📍 ${store.address}</p>
+                `;
+
+                itemCard.onclick = () => {
+                    map.flyTo([store.lat, store.lng], 16);
+                    marker.openPopup();
+                };
+
+                listContainer.appendChild(itemCard);
+            });
+        }
+
+        // =========================================================================
+        // SỰ KIỆN CLICK BẢN ĐỒ: QUÉT VÀ GOM CỬA HÀNG TRONG BÁN KÍNH 25KM
+        // =========================================================================
+        map.on('click', function(e) {
+            const clickedLat = e.latlng.lat;
+            const clickedLng = e.latlng.lng;
+            selectedCenterPoint = { lat: clickedLat, lng: clickedLng };
+
+            // 1. Xóa vòng tròn cũ nếu có
+            if (radiusCircle) {
+                map.removeLayer(radiusCircle);
+            }
+
+            // 2. Vẽ vòng tròn bán kính hình học 25,000 mét (25 km) trên map
+            radiusCircle = L.circle([clickedLat, clickedLng], {
+                color: '#00704A',
+                fillColor: '#00704A',
+                fillOpacity: 0.12,
+                radius: 25000 // 25 km
+            }).addTo(map);
+
+            // Tự động focus zoom màn hình vừa vặn vùng bán kính 25km
+            map.fitBounds(radiusCircle.getBounds());
+
+            // 3. Cập nhật giao diện Trạng thái
+            document.getElementById('radius-status').innerHTML = `📍 Đang quét bán kính 25km quanh điểm chọn`;
+            document.getElementById('clear-filter').style.display = 'block';
+
+            // 4. Lọc dữ liệu qua bộ tính khoảng cách Haversine
+            executeCombinedFilter();
+        });
+
+        // --- RESET HỦY BỘ LỌC BÁN KÍNH ---
+        function resetRadiusFilter() {
+            selectedCenterPoint = null;
+            if (radiusCircle) {
+                map.removeLayer(radiusCircle);
+                radiusCircle = null;
+            }
+            document.getElementById('radius-status').innerText = '💡 Click điểm bất kỳ trên bản đồ để quét 25km';
+            document.getElementById('clear-filter').style.display = 'none';
+            
+            executeCombinedFilter();
+        }
+
+        // --- BỘ LỌC KẾT HỢP (TỪ KHÓA + BÁN KÍNH) ---
+        function executeCombinedFilter() {
+            const query = document.getElementById('search-input').value.toLowerCase().trim();
+            
+            // Bước 1: Lọc theo từ khóa tìm kiếm trước
+            let result = starbucksStores.filter(s => 
+                s.name.toLowerCase().includes(query) || 
+                s.address.toLowerCase().includes(query)
+            );
+
+            // Bước 2: Nếu đang có điểm click quét bán kính 25km, chạy tiếp bộ lọc khoảng cách
+            if (selectedCenterPoint) {
+                result = result.map(store => {
+                    // Tính khoảng cách động và gán vào Object tạm thời
+                    const dist = calculateHaversineDistance(
+                        selectedCenterPoint.lat, selectedCenterPoint.lng, 
+                        store.lat, store.lng
+                    );
+                    return { ...store, distance: dist };
+                }).filter(store => store.distance <= 25); // Chỉ lấy những điểm dưới hoặc bằng 25 km
+            }
+
+            renderStoreSystem(result, selectedCenterPoint);
+        }
+
+        // Đồng bộ thanh nhập gõ chữ
+        function filterStores() {
+            executeCombinedFilter();
+        }
+
+        // Kích hoạt hệ thống lần đầu
+        renderStoreSystem(starbucksStores);
+    </script>
+</body>
+</html>
